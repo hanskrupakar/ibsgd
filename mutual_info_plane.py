@@ -50,7 +50,7 @@ else:
 optimizer = keras.optimizers.SGD(lr=args.lr)
 
 if args.num_gpu>1:
-    model = keras.utils.training_utils.multi_gpu_model(model, gpus=args.num_gpu)
+    model = keras.utils.multi_gpu_model(model, gpus=args.num_gpu)
 
 model.compile(loss='categorical_crossentropy', optimizer=optimizer, metrics=['accuracy'])
 
