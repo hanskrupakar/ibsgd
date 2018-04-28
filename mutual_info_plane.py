@@ -23,6 +23,7 @@ ap.add_argument('-n', '--num_epochs', help='Max number of training epochs', type
 ap.add_argument('-a', '--activation', help='Activation function (tanh/relu)', required=True)
 ap.add_argument('-w', '--weights_config', help='Configuration of sizes for weights in different layers (eg. 20-20-20-20-20)', required=True)
 ap.add_argument('-s', '--start', help='Epoch number to begin from', type=int, required=True)
+ap.add_argument('-g', '--num_gpu', help='Number of GPUs', type=int, default=1)
 args = ap.parse_args()
 
 layers = [int(p) for p in args.weights_config.split('-')]
@@ -47,6 +48,9 @@ if args.start==1:
 else:
     model = keras.models.load_model(os.path.join(args.save_dir,'chkpt'))
 optimizer = keras.optimizers.SGD(lr=args.lr)
+
+if args.num_gpu>1:
+    model = keras.utils.training_utils.multi_gpu_model(model, gpus=args.num_gpu)
 
 model.compile(loss='categorical_crossentropy', optimizer=optimizer, metrics=['accuracy'])
 
