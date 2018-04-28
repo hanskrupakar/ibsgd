@@ -1,5 +1,7 @@
 import keras
 import keras.backend as K
+import tensorflow as tf
+
 import numpy as np
 import glob, os
 import argparse
@@ -44,9 +46,11 @@ if args.start==1:
         clayer = keras.layers.Dense(n, activation=args.activation)(clayer)
     output_layer = keras.layers.Dense(trn.nb_classes, activation='softmax')(clayer)
 
-    model = keras.models.Model(inputs=input_layer, outputs=output_layer)
+    with tf.device('/cpu:0'):
+        model = keras.models.Model(inputs=input_layer, outputs=output_layer)
 else:
-    model = keras.models.load_model(os.path.join(args.save_dir,'chkpt'))
+    with tf.device('/cpu:0'):
+        model = keras.models.load_model(os.path.join(args.save_dir,'chkpt'))
 optimizer = keras.optimizers.SGD(lr=args.lr)
 
 if args.num_gpu>1:
