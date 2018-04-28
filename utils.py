@@ -28,44 +28,6 @@ def get_mnist():
     del X_train, X_test, Y_train, Y_test, y_train, y_test
  
     return trn, tst
-
-def get_IB_data(ID):
-    # Returns two namedtuples, with IB training and testing data
-    #   trn.X is training data
-    #   trn.y is trainiing class, with numbers from 0 to 9
-    #   trn.Y is training class, but coded as a 10-dim vector with one entry set to 1
-    # similarly for tst
-    nb_classes = 2
-    data_file = Path('datasets/IB_data_'+str(ID)+'.npz')
-    if data_file.is_file():
-        data = np.load('datasets/IB_data_'+str(ID)+'.npz')
-    else:
-        create_IB_data(ID)
-        data = np.load('datasets/IB_data_'+str(ID)+'.npz')
-        
-    (X_train, y_train), (X_test, y_test) = (data['X_train'], data['y_train']), (data['X_test'], data['y_test'])
-
-    Y_train = keras.utils.np_utils.to_categorical(y_train, nb_classes).astype('float32')
-    Y_test  = keras.utils.np_utils.to_categorical(y_test, nb_classes).astype('float32')
-
-    Dataset = namedtuple('Dataset',['X','Y','y','nb_classes'])
-    trn = Dataset(X_train, Y_train, y_train, nb_classes)
-    tst = Dataset(X_test , Y_test, y_test, nb_classes)
-    del X_train, X_test, Y_train, Y_test, y_train, y_test
-    return trn, tst
-
-def create_IB_data(idx):
-    data_sets_org = load_data()
-    data_sets = data_shuffle(data_sets_org, [80], shuffle_data=True)
-    X_train, y_train, X_test, y_test = data_sets.train.data, data_sets.train.labels[:,0], data_sets.test.data, data_sets.test.labels[:,0]
-    np.savez_compressed('datasets/IB_data_'+str(idx), X_train=X_train, y_train=y_train, X_test=X_test, y_test=y_test)
-
-def construct_full_dataset(trn, tst):
-    Dataset = namedtuple('Dataset',['X','Y','y','nb_classes'])
-    X = np.concatenate((trn.X,tst.X))
-    y = np.concatenate((trn.y,tst.y))
-    Y = np.concatenate((trn.Y,tst.Y))
-    return Dataset(X, Y, y, trn.nb_classes)
  
 def load_data():
     """Load the data

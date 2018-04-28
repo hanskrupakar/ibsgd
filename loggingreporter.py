@@ -3,32 +3,24 @@ import keras
 import keras.backend as K
 import numpy as np
 
-import cPickle
+import six
+from six.moves import cPickle
 import os
 
 import utils
 
 class LoggingReporter(keras.callbacks.Callback):
-    def __init__(self, cfg, trn, tst, do_save_func=None, *kargs, **kwargs):
+    def __init__(self, args, trn, tst, do_save_func=None, *kargs, **kwargs):
         super(LoggingReporter, self).__init__(*kargs, **kwargs)
-        self.cfg = cfg # Configuration options dictionary
+        self.args = args
         self.trn = trn  # Train data
         self.tst = tst  # Test data
-        
-        if 'FULL_MI' not in cfg:
-            self.cfg['FULL_MI'] = False # Whether to compute MI on train and test data, or just test
-            
-        if self.cfg['FULL_MI']:
-            self.full = utils.construct_full_dataset(trn,tst)
         
         # do_save_func(epoch) should return True if we should save on that epoch
         self.do_save_func = do_save_func
         
     def on_train_begin(self, logs={}):
-        if not os.path.exists(self.cfg['SAVE_DIR']):
-            print("Making directory", self.cfg['SAVE_DIR'])
-            os.makedirs(self.cfg['SAVE_DIR'])
-            
+        
         # Indexes of the layers which we keep track of. Basically, this will be any layer 
         # which has a 'kernel' attribute, which is essentially the "Dense" or "Dense"-like layers
         self.layerixs = []
@@ -80,7 +72,7 @@ class LoggingReporter(keras.callbacks.Callback):
             return
         
         # Sample a batch
-        batchsize = self.cfg['SGD_BATCHSIZE']
+        batchsize = self.args.batch_size
         cur_ixs = self._batch_todo_ixs[:batchsize]
         # Advance the indexing, so next on_batch_begin samples a different batch
         self._batch_todo_ixs = self._batch_todo_ixs[batchsize:]
@@ -98,6 +90,13 @@ class LoggingReporter(keras.callbacks.Callback):
 
 
     def on_epoch_end(self, epoch, logs={}):
+        
+        fname = self.args.save_dir + "/epoch%08d"% epoch
+        
+        if (os.path.exists(fname)):
+            print ('Using cached values!')
+            return
+
         if self.do_save_func is not None and not self.do_save_func(epoch):
             # Don't log this epoch
             return
@@ -123,13 +122,9 @@ class LoggingReporter(keras.callbacks.Callback):
             data['gradmean'    ].append( np.linalg.norm(stackedgrads.mean(axis=1)) )
             data['gradstd'     ].append( np.linalg.norm(stackedgrads.std(axis=1)) )
             
-            if self.cfg['FULL_MI']:
-                data['activity_tst'].append(self.layerfuncs[lndx]([self.full.X,])[0])
-            else:
-                data['activity_tst'].append(self.layerfuncs[lndx]([self.tst.X,])[0])
+            data['activity_tst'].append(self.layerfuncs[lndx]([self.tst.X,])[0])
             
-        fname = self.cfg['SAVE_DIR'] + "/epoch%08d"% epoch
         print("Saving", fname)
         with open(fname, 'wb') as f:
-             cPickle.dump({'ACTIVATION':self.cfg['ACTIVATION'], 'epoch':epoch, 'data':data, 'loss':loss}, f, cPickle.HIGHEST_PROTOCOL)        
+             cPickle.dump({'ACTIVATION':self.args.activation, 'epoch':epoch, 'data':data, 'loss':loss}, f, cPickle.HIGHEST_PROTOCOL)        
         
