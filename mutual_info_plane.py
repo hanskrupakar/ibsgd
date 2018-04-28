@@ -19,8 +19,6 @@ import utils
 ap = argparse.ArgumentParser()
 ap.add_argument('-b', '--batch_size', help='Batch Size for every epoch', type=int, required=True)
 ap.add_argument('-l', '--lr', help='Learning Rate', default=0.001, type=float)
-ap.add_argument('-d', '--decay', help='Learning Rate Decay', type=float, required=True)
-ap.add_argument('-r', '--decay_rate', help='Learning Rate Decay Epochs', type=int, required=True)
 ap.add_argument('-n', '--num_epochs', help='Max number of training epochs', type=int, required=True)
 ap.add_argument('-a', '--activation', help='Activation function (tanh/relu)', required=True)
 ap.add_argument('-w', '--weights_config', help='Configuration of sizes for weights in different layers (eg. 20-20-20-20-20)', required=True)
@@ -63,6 +61,9 @@ def do_report(epoch):
     else:                # Then every 100th
         return (epoch % 1000 == 0)
     
+if not os.path.isdir(os.path.join(args.save_dir,'tensorboard')):
+    os.mkdir(os.path.join(args.save_dir,'tensorboard'))
+    
 reporter = loggingreporter.LoggingReporter(args=args, 
                                           trn=trn, 
                                           tst=tst, 
@@ -77,24 +78,25 @@ saver = keras.callbacks.ModelCheckpoint(os.path.join(args.save_dir,'chkpt.h5'),
                                         mode='auto', 
                                         period=1000)
 
-scheduler = keras.callbacks.ReduceLROnPlateau(monitor='val_loss', factor=0.75, patience=1000, verbose=0, mode='min')
+scheduler = keras.callbacks.ReduceLROnPlateau(monitor='val_loss', 
+                                            factor=0.75, 
+                                            patience=1000, 
+                                            verbose=0, 
+                                            mode='min')
 
-if not os.path.isdir(os.path.join(args.save_dir,'tensorboard')):
-    os.mkdir(os.path.join(args.save_dir,'tensorboard'))
-    
-vis = keras.callbacks.TensorBoard(log_dir=os.path.join(args.save_dir,'tensorboard'), 
+visualizer = keras.callbacks.TensorBoard(log_dir=os.path.join(args.save_dir,'tensorboard'), 
                                 histogram_freq=0, 
                                 write_graph=True, 
                                 write_images=False)
-'''
+
 r = model.fit(x=trn.X, y=trn.Y, 
               verbose    = 2, 
               batch_size = args.batch_size,
               epochs     = args.num_epochs,
               initial_epoch = args.start-1,
               validation_data=(tst.X, tst.Y),
-              callbacks  = [saver])
-'''
+              callbacks  = [reporter, saver, scheduler, visualizer])
+
 # Which measure to plot
 infoplane_measures = ['bin', 'upper', 'lower']
 
