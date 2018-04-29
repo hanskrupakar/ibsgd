@@ -13,6 +13,11 @@ import six
 from six.moves import cPickle
 from collections import defaultdict, OrderedDict
 
+import matplotlib.pyplot as plt
+import matplotlib.gridspec as gridspec
+import seaborn as sns
+sns.set_style('darkgrid')
+
 import kde
 import simplebinmi
 
@@ -26,6 +31,7 @@ ap.add_argument('-a', '--activation', help='Activation function (tanh/relu)', re
 ap.add_argument('-w', '--weights_config', help='Configuration of sizes for weights in different layers (eg. 20-20-20-20-20)', required=True)
 ap.add_argument('-s', '--start', help='Epoch number to begin from', type=int, required=True)
 ap.add_argument('-g', '--num_gpu', help='Number of GPUs', type=int, default=1)
+ap.add_argument('-p', '--plot', help='Plot Mutual Info plane using checkpoints created! No training!', action='store_true')
 args = ap.parse_args()
 
 layers = [int(p) for p in args.weights_config.split('-')]
@@ -50,7 +56,7 @@ if args.start==1:
         model = keras.models.Model(inputs=input_layer, outputs=output_layer)
 else:
     with tf.device('/cpu:0'):
-        model = keras.models.load_model(os.path.join(args.save_dir,'chkpt'))
+        model = keras.models.load_model(os.path.join(args.save_dir,'chkpt.h5'))
 optimizer = keras.optimizers.SGD(lr=args.lr)
 
 if args.num_gpu>1:
@@ -97,18 +103,17 @@ visualizer = keras.callbacks.TensorBoard(log_dir=os.path.join(args.save_dir,'ten
                                 write_graph=True, 
                                 write_images=False)
 
-r = model.fit(x=trn.X, y=trn.Y, 
-              verbose    = 2, 
-              batch_size = args.batch_size,
-              epochs     = args.num_epochs,
-              initial_epoch = args.start-1,
-              validation_data=(tst.X, tst.Y),
-              callbacks  = [reporter, saver, scheduler, visualizer])
+if not args.plot:
+    r = model.fit(x=trn.X, y=trn.Y, 
+                  verbose    = 2, 
+                  batch_size = args.batch_size,
+                  epochs     = args.num_epochs,
+                  initial_epoch = args.start-1,
+                  validation_data=(tst.X, tst.Y),
+                  callbacks  = [reporter, saver, scheduler, visualizer])
 
 # Which measure to plot
 infoplane_measures = ['bin', 'upper', 'lower']
-
-DIR_TEMPLATE = args.activation+'_'+args.weights_config
 
 # Functions to return upper and lower bounds on entropy of layer activity
 noise_variance = 1e-1                    # Added Gaussian noise variance
@@ -130,108 +135,94 @@ PLOT_LAYERS    = None     # Which layers to plot.  If None, all saved layers are
 
 # Data structure used to store results
 measures = OrderedDict()
-measures['relu'] = {}
-measures['tanh'] = {}
-
+measures[args.activation] = {}
 
 # Compute MI measures
-# -----
 
-# In[ ]:
-
-
-for activation in measures.keys():
-    cur_dir = 'rawdata/' + args.activation+'_'+args.weights_config
-    if not os.path.exists(cur_dir):
-        print("Directory %s not found" % cur_dir)
-        continue
-        
-    # Load files saved during each epoch, and compute MI measures of the activity in that epoch
-    print('*** Doing %s ***' % cur_dir)
-    for epochfile in sorted(os.listdir(cur_dir)):
-        if not epochfile.startswith('epoch'):
+if not os.path.exists(os.path.join(*['rawdata',args.activation+'_'+args.weights_config, 'infoplane_measures'])):
+    for activation in measures.keys():
+        cur_dir = os.path.join('rawdata', args.activation+'_'+args.weights_config)
+        if not os.path.exists(cur_dir):
+            print("Directory %s not found" % cur_dir)
             continue
             
-        fname = cur_dir + "/" + epochfile
-        with open(fname, 'rb') as f:
-            d = cPickle.load(f)
+        # Load files saved during each epoch, and compute MI measures of the activity in that epoch
+        print('*** Doing %s ***' % cur_dir)
+        for epochfile in sorted(os.listdir(cur_dir)):
+            if not epochfile.startswith('epoch'):
+                continue
+                
+            fname = cur_dir + "/" + epochfile
+            with open(fname, 'rb') as f:
+                d = cPickle.load(f)
 
-        epoch = d['epoch']
-        if epoch in measures[activation]: # Skip this epoch if its already been processed
-            continue                      # this is a trick to allow us to rerun this cell multiple times)
+            epoch = d['epoch']
+            if epoch in measures[activation]: # Skip this epoch if its already been processed
+                continue                      # this is a trick to allow us to rerun this cell multiple times)
+                
+            if epoch > args.num_epochs:
+                continue
+
+            print("Doing", fname)
             
-        if epoch > args.num_epochs:
-            continue
+            num_layers = len(d['data']['activity_tst'])
 
-        print("Doing", fname)
-        
-        num_layers = len(d['data']['activity_tst'])
-
-        if PLOT_LAYERS is None:
-            PLOT_LAYERS = []
+            if PLOT_LAYERS is None:
+                PLOT_LAYERS = []
+                for lndx in range(num_layers):
+                    #if d['data']['activity_tst'][lndx].shape[1] < 200 and lndx != num_layers - 1:
+                    PLOT_LAYERS.append(lndx)
+                    
+            cepochdata = defaultdict(list)
             for lndx in range(num_layers):
-                #if d['data']['activity_tst'][lndx].shape[1] < 200 and lndx != num_layers - 1:
-                PLOT_LAYERS.append(lndx)
-                
-        cepochdata = defaultdict(list)
-        for lndx in range(num_layers):
-            activity = d['data']['activity_tst'][lndx]
+                activity = d['data']['activity_tst'][lndx]
 
-            # Compute marginal entropies
-            h_upper = entropy_func_upper([activity,])[0]
-            h_lower = entropy_func_lower([activity,])[0]
-                
-            # Layer activity given input. This is simply the entropy of the Gaussian noise
-            hM_given_X = kde.kde_condentropy(activity, noise_variance)
+                # Compute marginal entropies
+                h_upper = entropy_func_upper([activity,])[0]
+                h_lower = entropy_func_lower([activity,])[0]
+                    
+                # Layer activity given input. This is simply the entropy of the Gaussian noise
+                hM_given_X = kde.kde_condentropy(activity, noise_variance)
 
-            # Compute conditional entropies of layer activity given output
-            hM_given_Y_upper=0.
-            for i in range(10):
-                hcond_upper = entropy_func_upper([activity[saved_labelixs[i],:],])[0]
-                hM_given_Y_upper += labelprobs[i] * hcond_upper
+                # Compute conditional entropies of layer activity given output
+                hM_given_Y_upper=0.
+                for i in range(10):
+                    hcond_upper = entropy_func_upper([activity[saved_labelixs[i],:],])[0]
+                    hM_given_Y_upper += labelprobs[i] * hcond_upper
+                    
+                hM_given_Y_lower=0.
+                for i in range(10):
+                    hcond_lower = entropy_func_lower([activity[saved_labelixs[i],:],])[0]
+                    hM_given_Y_lower += labelprobs[i] * hcond_lower
                 
-            hM_given_Y_lower=0.
-            for i in range(10):
-                hcond_lower = entropy_func_lower([activity[saved_labelixs[i],:],])[0]
-                hM_given_Y_lower += labelprobs[i] * hcond_lower
+                cepochdata['MI_XM_upper'].append( nats2bits * (h_upper - hM_given_X) )
+                cepochdata['MI_YM_upper'].append( nats2bits * (h_upper - hM_given_Y_upper) )
+                cepochdata['H_M_upper'  ].append( nats2bits * h_upper )
+
+                pstr = 'upper: MI(X;M)=%0.3f, MI(Y;M)=%0.3f' % (cepochdata['MI_XM_upper'][-1], cepochdata['MI_YM_upper'][-1])
+                cepochdata['MI_XM_lower'].append( nats2bits * (h_lower - hM_given_X) )
+                cepochdata['MI_YM_lower'].append( nats2bits * (h_lower - hM_given_Y_lower) )
+                cepochdata['H_M_lower'  ].append( nats2bits * h_lower )
+                pstr += ' | lower: MI(X;M)=%0.3f, MI(Y;M)=%0.3f' % (cepochdata['MI_XM_lower'][-1], cepochdata['MI_YM_lower'][-1])
+
+                binxm, binym = simplebinmi.bin_calc_information2(saved_labelixs, activity, 0.5)
+                cepochdata['MI_XM_bin'].append( nats2bits * binxm )
+                cepochdata['MI_YM_bin'].append( nats2bits * binym )
+                pstr += ' | bin: MI(X;M)=%0.3f, MI(Y;M)=%0.3f' % (cepochdata['MI_XM_bin'][-1], cepochdata['MI_YM_bin'][-1])
             
-            cepochdata['MI_XM_upper'].append( nats2bits * (h_upper - hM_given_X) )
-            cepochdata['MI_YM_upper'].append( nats2bits * (h_upper - hM_given_Y_upper) )
-            cepochdata['H_M_upper'  ].append( nats2bits * h_upper )
+                print('- Layer %d %s' % (lndx, pstr) )
 
-            pstr = 'upper: MI(X;M)=%0.3f, MI(Y;M)=%0.3f' % (cepochdata['MI_XM_upper'][-1], cepochdata['MI_YM_upper'][-1])
-            cepochdata['MI_XM_lower'].append( nats2bits * (h_lower - hM_given_X) )
-            cepochdata['MI_YM_lower'].append( nats2bits * (h_lower - hM_given_Y_lower) )
-            cepochdata['H_M_lower'  ].append( nats2bits * h_lower )
-            pstr += ' | lower: MI(X;M)=%0.3f, MI(Y;M)=%0.3f' % (cepochdata['MI_XM_lower'][-1], cepochdata['MI_YM_lower'][-1])
+            measures[activation][epoch] = cepochdata
 
-            binxm, binym = simplebinmi.bin_calc_information2(saved_labelixs, activity, 0.5)
-            cepochdata['MI_XM_bin'].append( nats2bits * binxm )
-            cepochdata['MI_YM_bin'].append( nats2bits * binym )
-            pstr += ' | bin: MI(X;M)=%0.3f, MI(Y;M)=%0.3f' % (cepochdata['MI_XM_bin'][-1], cepochdata['MI_YM_bin'][-1])
-        
-            print('- Layer %d %s' % (lndx, pstr) )
-
-        measures[activation][epoch] = cepochdata
+    with open(os.path.join(cur_dir, 'infoplane_measures'), 'wb') as f:
+        cPickle.dump(measures, f, protocol=cPickle.HIGHEST_PROTOCOL)
+else:
+    with open(os.path.join(*['rawdata',args.activation+'_'+args.weights_config, 'infoplane_measures']), 'r') as f:
+        measures = cPickle.load(f)
+    PLOT_LAYERS = [x for x in range(len(args.weights_config.split('-')))]
     
 # Plot overall summaries
-# ----
-# 
-# This is more for diagnostic purposes, not for article
-# 
 
-# In[ ]:
-
-
-import matplotlib.pyplot as plt
-import matplotlib.gridspec as gridspec
-import seaborn as sns
-sns.set_style('darkgrid')
-
-
-#PLOT_LAYERS = [0,1,2,3,4] # [1,2,3]
-#PLOT_LAYERS = [0,1,2,3]
-#PLOT_LAYERS = [0,1,2,3]
 plt.figure(figsize=(8,8))
 gs = gridspec.GridSpec(4,2)
 for actndx, (activation, vals) in enumerate(measures.items()):
@@ -286,10 +277,6 @@ plt.tight_layout()
 
 
 # Plot Infoplane Visualization
-# ----
-
-# In[ ]:
-
 
 max_epoch = max( (max(vals.keys()) if len(vals) else 0) for vals in measures.values())
 sm = plt.cm.ScalarMappable(cmap='gnuplot', norm=plt.Normalize(vmin=0, vmax=args.num_epochs))
@@ -377,10 +364,6 @@ plt.tight_layout()
 
 plt.savefig('plots/' + args.activation+'_'+args.weights_config+'_snr', bbox_inches='tight')
 
-
-# In[ ]:
-
-
 GRID_PLOT_LAYERS = [0,1,2,3] # [1,2,3]
 sns.set_style('whitegrid')
 max_epoch = max( (max(vals.keys()) if len(vals) else 0) for vals in measures.values())
@@ -442,5 +425,5 @@ for actndx, (activation, vals) in enumerate(measures.items()):
     plt.tight_layout()
     plt.legend(loc='lower left', frameon=True)
     
-    plt.savefig('plots/' + args.activation+'_'+args.weights_config+'_gridplot.pdf', bbox_inches='tight')
+    plt.savefig('plots/' + args.activation+'_'+args.weights_config+'_gridplot.png', bbox_inches='tight')
 
