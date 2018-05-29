@@ -48,8 +48,9 @@ if args.start==1:
     # A Simple Feed-Forward NN with given activation for 1D MNIST
     input_layer  = keras.layers.Input((trn.X.shape[1],))
     clayer = input_layer
-    activate = keras.layers.advanced_activations.LeakyReLU(alpha=0.03) if args.activation=='leaky' else keras.layers.advanced_activations.PReLU()
+ 
     for n in layers:
+        activate = keras.layers.advanced_activations.LeakyReLU(alpha=0.03) if args.activation=='leaky' else keras.layers.advanced_activations.PReLU()
         if args.activation in ['leaky', 'prelu']:
             clayer = keras.layers.Dense(n, activation='linear')(clayer)
             clayer = activate(clayer)
