@@ -48,8 +48,13 @@ if args.start==1:
     # A Simple Feed-Forward NN with given activation for 1D MNIST
     input_layer  = keras.layers.Input((trn.X.shape[1],))
     clayer = input_layer
+    activate = keras.layers.advanced_activations.LeakyReLU(alpha=0.03) if args.activation=='leaky' else keras.layers.advanced_activations.PReLU()
     for n in layers:
-        clayer = keras.layers.Dense(n, activation=args.activation)(clayer)
+        if args.activation in ['leaky', 'prelu']:
+            clayer = keras.layers.Dense(n, activation='linear')(clayer)
+            clayer = activate(clayer)
+        else:
+            clayer = keras.layers.Dense(n, activation=args.activation)(clayer)               
     output_layer = keras.layers.Dense(trn.nb_classes, activation='softmax')(clayer)
 
     with tf.device('/cpu:0'):
@@ -94,7 +99,7 @@ saver = keras.callbacks.ModelCheckpoint(os.path.join(args.save_dir,'chkpt.h5'),
 
 scheduler = keras.callbacks.ReduceLROnPlateau(monitor='val_loss', 
                                             factor=0.75, 
-                                            patience=1000, 
+                                            patience=20, 
                                             verbose=0, 
                                             mode='min')
 
@@ -217,7 +222,7 @@ if not os.path.exists(os.path.join(*['rawdata',args.activation+'_'+args.weights_
     with open(os.path.join(cur_dir, 'infoplane_measures'), 'wb') as f:
         cPickle.dump(measures, f, protocol=cPickle.HIGHEST_PROTOCOL)
 else:
-    with open(os.path.join(*['rawdata',args.activation+'_'+args.weights_config, 'infoplane_measures']), 'r') as f:
+    with open(os.path.join(*['rawdata',args.activation+'_'+args.weights_config, 'infoplane_measures']), 'rb') as f:
         measures = cPickle.load(f)
     PLOT_LAYERS = [x for x in range(len(args.weights_config.split('-')))]
     
